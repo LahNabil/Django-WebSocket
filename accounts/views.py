@@ -39,6 +39,11 @@ def login_user(request):
     else:
         return Response({"error": "Invalid email or password"}, status=status.HTTP_401_UNAUTHORIZED)
 
+@api_view(['GET'])
+def get_all_users(request):
+    users = User.objects.all()
+    serializer_class = UserSerializer(users, many=True)
+    return Response(serializer_class.data, status=status.HTTP_200_OK)
     
 
 

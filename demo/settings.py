@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
 import os
+from datetime import timedelta
+
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,6 +49,10 @@ INSTALLED_APPS = [
     'chat',
 
 ]
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),    # Token d'accès valable 1 heure
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),      # Token de rafraîchissement valable 30 jours
+}
 
 ASGI_APPLICATION = 'demo.asgi.application'
 WSGI_APPLICATION = 'demo.wsgi.application'
@@ -156,6 +162,7 @@ LOGGING = {
         'level': 'INFO',
     },
 }
+
 
 
 # Static files (CSS, JavaScript, Images)
