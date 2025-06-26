@@ -14,13 +14,16 @@ User = get_user_model()
 
 @api_view(['POST'])
 def register_user(request):
-
-    serializer_class = UserSerializer(data=request.data)
-    if serializer_class.is_valid():
-        serializer_class.save()
-        return Response(serializer_class.data, status=status.HTTP_201_CREATED)
-    else:
-        return Response(serializer_class.errors, status=status.HTTP_400_BAD_REQUEST)
+    serializer = UserSerializer(data=request.data)
+    if serializer.is_valid():
+        user = serializer.save()  # is_active=True sera appliqué automatiquement
+        return Response({
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "message": "Compte créé avec succès"
+        }, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
 def login_user(request):

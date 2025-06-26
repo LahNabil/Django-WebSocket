@@ -10,9 +10,18 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def create(self, validated_data):
-        password = validated_data.pop('password', None)
-        instance = self.Meta.model(**validated_data)
-        if password is not None:
-            instance.set_password(password)
-        instance.save()
-        return instance
+        # Set is_active=True by default if not specified
+        if 'is_active' not in validated_data:
+            validated_data['is_active'] = True
+            
+        # Extract password separately
+        password = validated_data.pop('password')
+        
+        # Create user using the manager's create_user method
+        user = User.objects.create_user(
+            email=validated_data['email'],
+            username=validated_data.get('username', validated_data['email']),  # Fallback to email if username not provided
+            password=password,
+            **{k: v for k, v in validated_data.items() if k != 'email'}  # Exclude email to avoid duplication
+        )
+        return user
