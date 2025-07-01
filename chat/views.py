@@ -6,6 +6,7 @@ from .serializers import MessageSerializer
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model
 from django.db import models
+import uuid
 
 User = get_user_model()
 
@@ -13,7 +14,9 @@ User = get_user_model()
 @permission_classes([IsAuthenticated])
 def get_conversation_messages(request, receiver_id):
     try:
-        receiver = get_object_or_404(User, id=receiver_id)
+        # Convert receiver_id string to UUID object
+        receiver_uuid = uuid.UUID(receiver_id)
+        receiver = get_object_or_404(User, id=receiver_uuid)
         
         # Find the conversation between current user and receiver
         conversation = Conversation.objects.filter(
@@ -27,5 +30,7 @@ def get_conversation_messages(request, receiver_id):
         messages = Message.objects.filter(conversation=conversation).order_by('timestamp')
         serializer = MessageSerializer(messages, many=True)
         return Response(serializer.data)
+    except ValueError:
+        return Response({'error': 'Invalid receiver ID format'}, status=400)
     except Exception as e:
         return Response({'error': str(e)}, status=400)

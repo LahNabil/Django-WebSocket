@@ -18,7 +18,7 @@ def register_user(request):
     if serializer.is_valid():
         user = serializer.save()  # is_active=True sera appliqué automatiquement
         return Response({
-            "id": user.id,
+            "id": str(user.id),
             "email": user.email,
             "name": user.name,
             "message": "Compte créé avec succès"

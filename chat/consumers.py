@@ -5,11 +5,13 @@ from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import AccessToken
 from chat.models import Conversation, Message
 from urllib.parse import parse_qs
+import uuid
 
 User = get_user_model()
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        
         query_params = parse_qs(self.scope['query_string'].decode())
         token = query_params.get('token', [None])[0]
         
@@ -22,37 +24,29 @@ class ChatConsumer(AsyncWebsocketConsumer):
             user_id = access_token['user_id']
             self.user = await self.get_user(user_id)
             
-            # Get receiver_id from query params
             receiver_id = query_params.get('receiver_id', [None])[0]
             if not receiver_id:
                 await self.close()
                 return
             
-            self.receiver = await self.get_user(int(receiver_id))
+            self.receiver = await self.get_user(uuid.UUID(receiver_id))
             
-            # Get or create conversation
             self.conversation = await self.get_or_create_conversation(self.user, self.receiver)
-            
-            # Create consistent group name
             self.group_name = f"chat_{self.conversation.id}"
             
             await self.accept()
-            await self.channel_layer.group_add(
-                self.group_name,
-                self.channel_name
-            )
-            print(f"User {self.user.id} connected to conversation {self.conversation.id} with {self.receiver.id}")  # Debug
+            await self.channel_layer.group_add(self.group_name, self.channel_name)
+            
+            # Mark previous messages as read when connecting
+            await self.mark_messages_as_read(self.conversation, self.user)
+            
         except Exception as e:
-            print(f"Error in connect: {e}")
+            print(f"Connection error: {str(e)}")
             await self.close()
 
     @database_sync_to_async
     def get_user(self, user_id):
-        try:
-            return User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            print(f"User {user_id} does not exist")
-            raise
+        return User.objects.get(id=user_id)
 
     async def disconnect(self, close_code):
         if hasattr(self, 'group_name'):
@@ -60,82 +54,82 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 self.group_name,
                 self.channel_name
             )
-            print(f"User {getattr(self, 'user', None)} disconnected")  # Debug
-    
+
     async def receive(self, text_data):
         try:
-            print(f"Received raw data: {text_data}")  # Debug
-            text_data_json = json.loads(text_data)
+            data = json.loads(text_data)
+            message = data.get('message')
             
-            if 'message' not in text_data_json:
-                await self.send(text_data=json.dumps({
-                    'error': 'Message field is required'
-                }))
-                return
-
-            message = text_data_json['message']
-            print(f"User {self.user.id} sending message to conversation {self.conversation.id}")  # Debug
-        
+            if not message:
+                return await self.send_error("Message content is required")
+            
             # Save message to database
-            await self.save_message(self.conversation, self.user, message)
-        
+            saved_message = await self.save_message(
+                conversation=self.conversation,
+                sender=self.user,
+                text=message
+            )
+            
             # Send message to group
             await self.channel_layer.group_send(
                 self.group_name,
                 {
                     'type': 'chat_message',
+                    'message_id': str(saved_message.id),
                     'message': message,
-                    'sender': self.user.username,
-                    'sender_id': self.user.id,  # Added sender_id for debugging
-                    'timestamp': str(await self.get_current_timestamp())
+                    'sender_id': str(self.user.id),
+                    'sender_username': self.user.username,
+                    'timestamp': saved_message.timestamp.isoformat(),
+                    'read': saved_message.read
                 }
             )
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error: {e}")
-            await self.send(text_data=json.dumps({
-                'error': 'Invalid JSON format',
-                'details': str(e)
-            }))
+            
+        except json.JSONDecodeError:
+            await self.send_error("Invalid JSON format")
         except Exception as e:
-            print(f"Error in receive: {e}")
-            await self.send(text_data=json.dumps({
-                'error': 'Internal server error',
-                'details': str(e)
-            }))
-        
-    async def chat_message(self, event):
-        print(f"Sending message to client: {event}")  # Debug
+            await self.send_error(str(e))
+    
+    async def send_error(self, message):
         await self.send(text_data=json.dumps({
+            'type': 'error',
+            'message': message
+        }))
+
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message',
+            'message_id': event['message_id'],
+            'sender_id': event['sender_id'],
+            'sender_username': event['sender_username'],
             'message': event['message'],
-            'sender': event['sender'],
-            'sender_id': event['sender_id'],  # Added for debugging
-            'timestamp': event['timestamp']
+            'timestamp': event['timestamp'],
+            'read': event['read']
         }))
 
     @database_sync_to_async
     def get_or_create_conversation(self, user1, user2):
-        # Ensure consistent ordering of users to prevent duplicate conversations
+        # Sort users to ensure consistent conversation
         if user1.id > user2.id:
             user1, user2 = user2, user1
-            
-        conversation, created = Conversation.objects.get_or_create(
+        conversation, _ = Conversation.objects.get_or_create(
             initiator=user1,
             receiver=user2
         )
-        print(f"Conversation between {user1.id} and {user2.id}: {'created' if created else 'exists'} (ID: {conversation.id})")  # Debug
         return conversation
 
     @database_sync_to_async
     def save_message(self, conversation, sender, text):
-        msg = Message.objects.create(
+        return Message.objects.create(
             conversation=conversation,
             sender=sender,
             text=text
         )
-        print(f"Message saved: ID {msg.id} in conversation {conversation.id}")  # Debug
-        return msg
 
     @database_sync_to_async
-    def get_current_timestamp(self):
-        from django.utils import timezone
-        return timezone.now()
+    def mark_messages_as_read(self, conversation, user):
+        other_user = conversation.initiator if user == conversation.receiver else conversation.receiver
+        Message.objects.filter(
+            conversation=conversation,
+            sender=other_user,
+            read=False
+        ).update(read=True)

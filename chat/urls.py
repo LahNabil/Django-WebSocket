@@ -4,7 +4,7 @@ from . import views
 
 
 urlpatterns = [
-    path('messages/<int:receiver_id>/', views.get_conversation_messages, name='get_messages'),
+    path('messages/<str:receiver_id>/', views.get_conversation_messages, name='get_messages'),
 ]
 
 
