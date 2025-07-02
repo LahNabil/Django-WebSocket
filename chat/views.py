@@ -34,3 +34,36 @@ def get_conversation_messages(request, receiver_id):
         return Response({'error': 'Invalid receiver ID format'}, status=400)
     except Exception as e:
         return Response({'error': str(e)}, status=400)
+    
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_unread_counts(request):
+    try:
+        user = request.user
+        conversations = Conversation.objects.filter(
+            models.Q(initiator=user) | models.Q(receiver=user)
+        )
+
+        result = []
+        for conv in conversations:
+            other = conv.receiver if conv.initiator == user else conv.initiator
+            unread_count = Message.objects.filter(
+                conversation=conv,
+                sender=other,
+                read=False
+            ).count()
+            result.append({
+                'id': str(other.id),
+                'name': other.username,
+                'email': other.email,
+                'unread_count': unread_count
+            })
+
+        return Response(result)
+
+    except Exception as e:
+        print("ERROR in unread_counts:", str(e))
+        return Response({'error': str(e)}, status=400)
+
+
+
