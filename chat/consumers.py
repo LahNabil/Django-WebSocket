@@ -98,6 +98,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     'read': saved_message.read
                 }
             )
+            await self.channel_layer.group_send(
+                f"chat_user_{self.receiver.id}",
+                {
+                    'type': 'unread_notify',
+                    'from_user_id': str(self.user.id),
+                    'from_user_name': self.user.username,
+                }
+            )
 
         except json.JSONDecodeError:
             print("Error while sending message")
@@ -105,6 +113,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             print("unknown error", str(e))
             await self.send_error(str(e))
+    
+    async def unread_notify(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'unread_notify',
+            'from_user_id': event['from_user_id'],
+            'from_user_name': event['from_user_name']
+        }))
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
